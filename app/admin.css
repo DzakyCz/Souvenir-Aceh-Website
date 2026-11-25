@@ -1,0 +1,55 @@
+/* Minimal admin-only styling, reusing tokens and utility classes from shop.css */
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fffef9;
+  border: 1px solid var(--soft-line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--soft-line);
+  font-size: 0.9rem;
+}
+.admin-table th {
+  background: #f1f1e7;
+  font-weight: 700;
+}
+.admin-table tr:last-child td {
+  border-bottom: none;
+}
+.admin-actions {
+  display: flex;
+  gap: 6px;
+}
+.admin-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 8px;
+}
+.admin-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+.admin-form-grid input,
+.admin-form-grid textarea {
+  border: 1px solid var(--soft-line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+}
+.admin-field-wide {
+  grid-column: 1 / -1;
+}
+@media (max-width: 640px) {
+  .admin-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
