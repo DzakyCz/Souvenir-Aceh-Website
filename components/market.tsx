@@ -16,14 +16,7 @@ import {
   Clock3,
   Package,
 } from "lucide-react";
-import {
-  categories,
-  products,
-  shops,
-  money,
-  photo,
-  type Product,
-} from "./catalog";
+import { money, photo, useCatalog, type Product } from "./catalog";
 import { useMarket } from "./store";
 import { Choice } from "./choice";
 import { Showcase } from "./showcase";
@@ -31,20 +24,24 @@ import { flyToCart } from "./fly-to-cart";
 import { useGridReveal } from "./reveal";
 export function ProductCard({ p }: { p: Product }) {
   const { add } = useMarket();
+  const { categories } = useCatalog();
   const [added, setAdded] = useState(0);
   useEffect(() => {
     if (!added) return;
     const timer = window.setTimeout(() => setAdded(0), 1350);
     return () => window.clearTimeout(timer);
   }, [added]);
+  const toneIndex = categories.findIndex((c) => c.id === p.categoryId);
   return (
-    <article className={"product-card product-tone-" + p.category}>
+    <article
+      className={"product-card product-tone-" + (toneIndex >= 0 ? toneIndex % 4 : 0)}
+    >
       <Link className="product-photo" href={"/produk/" + p.slug + "/"}>
-        <img loading="lazy" src={photo(p.image)} alt={p.name} />
+        <img loading="lazy" src={photo(p)} alt={p.name} />
       </Link>
       <div className="p-info">
         <span className="meta">
-          {shops[p.shop].origin} <span aria-hidden="true">/</span> {p.size}
+          {p.shop.origin} <span aria-hidden="true">/</span> {p.size}
         </span>
         <h3>
           <Link href={"/produk/" + p.slug + "/"}>{p.name}</Link>
@@ -70,9 +67,26 @@ export function ProductCard({ p }: { p: Product }) {
   );
 }
 export function Home() {
+  const { categories, products, loaded, error, reload } = useCatalog();
   const [chosen, setChosen] = useState(-1);
   const main = useRef<HTMLElement>(null);
-  useGridReveal(main, [".service-grid", ".product-grid"]);
+  useGridReveal(main, [".service-grid", ".product-grid"], loaded);
+  if (!loaded) {
+    return (
+      <main id="utama" className="shell page">
+        <p role="status">Memuat katalog…</p>
+      </main>
+    );
+  }
+  if (error) {
+    return (
+      <main id="utama" className="shell page">
+        <p role="status">
+          {error} <button className="btn outline" onClick={reload}>Coba lagi</button>
+        </p>
+      </main>
+    );
+  }
   return (
     <main id="utama" ref={main}>
       <Showcase />
@@ -97,7 +111,7 @@ export function Home() {
                   <h3>{c.name}</h3>
                   <p>{c.caption}</p>
                   <span className="ui-badge">
-                    {products.filter((p) => p.category === i).length} produk{" "}
+                    {products.filter((p) => p.categoryId === c.id).length} produk{" "}
                     <ChevronRight size={13} />
                   </span>
                 </div>
@@ -119,12 +133,12 @@ export function Home() {
           </Link>
         </div>
         <div className="edit-tabs" aria-label="Kategori produk pilihan">
-          {[{ name: "Semua", short: "Semua" }, ...categories].map(
-            (label, i) => (
+          {[{ id: -1, name: "Semua", short: "Semua" }, ...categories].map(
+            (label) => (
               <button
-                key={label.name}
-                aria-pressed={chosen === i - 1}
-                onClick={() => setChosen(i - 1)}
+                key={label.id}
+                aria-pressed={chosen === label.id}
+                onClick={() => setChosen(label.id)}
               >
                 <span className="category-full">{label.name}</span>
                 <span aria-hidden="true" className="category-short">
@@ -137,7 +151,7 @@ export function Home() {
         <div className="product-grid" aria-live="polite" data-reveal>
           {(chosen === -1
             ? products.slice(0, 4)
-            : products.filter((p) => p.category === chosen)
+            : products.filter((p) => p.categoryId === chosen)
           ).map((p) => (
             <ProductCard key={p.slug} p={p} />
           ))}
@@ -165,7 +179,8 @@ export function Breadcrumb({
 }
 export function Catalog() {
   const main = useRef<HTMLElement>(null);
-  useGridReveal(main, [".product-grid"]);
+  const { categories, products, loaded, error, reload } = useCatalog();
+  useGridReveal(main, [".product-grid"], loaded);
   const [cat, setCat] = useState(""),
     [q, setQ] = useState(""),
     [sort, setSort] = useState("pilihan"),
@@ -198,22 +213,14 @@ export function Catalog() {
   const list = products
     .filter(
       (p) =>
-        (!cat || categories[p.category].slug === cat) &&
-        (!long || p.days >= 7) &&
+        (!cat || p.category.slug === cat) &&
+        (!long || p.shelfLifeDays >= 7) &&
         q
           .trim()
           .toLowerCase()
           .split(/\s+/)
           .every((w) =>
-            (
-              p.name +
-              " " +
-              shops[p.shop].name +
-              " " +
-              shops[p.shop].origin +
-              " " +
-              categories[p.category].name
-            )
+            (p.name + " " + p.shop.name + " " + p.shop.origin + " " + p.category.name)
               .toLowerCase()
               .includes(w),
           ),
@@ -225,6 +232,22 @@ export function Catalog() {
           ? b.price - a.price
           : 0,
     );
+  if (!loaded) {
+    return (
+      <main id="utama" className="shell page">
+        <p role="status">Memuat katalog…</p>
+      </main>
+    );
+  }
+  if (error) {
+    return (
+      <main id="utama" className="shell page">
+        <p role="status">
+          {error} <button className="btn outline" onClick={reload}>Coba lagi</button>
+        </p>
+      </main>
+    );
+  }
   return (
     <main id="utama" className="shell page" ref={main}>
       <Breadcrumb items={[{ name: "Katalog" }]} />
@@ -332,28 +355,31 @@ export function Catalog() {
     </main>
   );
 }
-export function ProductDetail({ p }: { p: Product }) {
+export function ProductDetail({
+  product: p,
+  related,
+}: {
+  product: Product;
+  related: Product[];
+}) {
   const [qty, setQty] = useState(1),
     { add } = useMarket();
-  const s = shops[p.shop];
   return (
     <main id="utama" className="shell page">
       <Breadcrumb
         items={[{ name: "Katalog", href: "/produk/" }, { name: p.name }]}
       />
       <div className="detail">
-        <img className="detail-photo" src={photo(p.image)} alt={p.name} />
+        <img className="detail-photo" src={photo(p)} alt={p.name} />
         <div>
-          <div className="eyebrow">
-            {categories[p.category].name.toUpperCase()}
-          </div>
+          <div className="eyebrow">{p.category.name.toUpperCase()}</div>
           <h1>{p.name}</h1>
           <span className="detail-shop">
             <Store size={16} />
-            {s.name} · {s.origin}
+            {p.shop.name} · {p.shop.origin}
           </span>
           <b className="detail-price">{money(p.price)}</b>
-          <p>{p.desc}</p>
+          <p>{p.description}</p>
           <div className="facts">
             <span>
               <Package />
@@ -363,10 +389,10 @@ export function ProductDetail({ p }: { p: Product }) {
               <Plane />
               Muat di kabin
             </span>
-            {p.days > 0 && (
+            {p.shelfLifeDays > 0 && (
               <span>
                 <Clock3 />
-                Tahan {p.days} hari
+                Tahan {p.shelfLifeDays} hari
               </span>
             )}
           </div>
@@ -402,25 +428,27 @@ export function ProductDetail({ p }: { p: Product }) {
           <small>
             Tersedia {p.stock} · Antar hotel atau ambil di Banda Aceh
           </small>
-          {p.days > 0 && (
+          {p.shelfLifeDays > 0 && (
             <small className="legal">
               Legalitas pangan · Belum dicantumkan
             </small>
           )}
         </div>
       </div>
-      <div className="section-head">
-        <h2>
-          Rekomendasi <em>Produk.</em>
-        </h2>
-      </div>
-      <div className="product-grid">
-        {products
-          .filter((x) => x.shop === p.shop && x.slug !== p.slug)
-          .map((x) => (
-            <ProductCard key={x.slug} p={x} />
-          ))}
-      </div>
+      {related.length > 0 && (
+        <>
+          <div className="section-head">
+            <h2>
+              Rekomendasi <em>Produk.</em>
+            </h2>
+          </div>
+          <div className="product-grid">
+            {related.map((x) => (
+              <ProductCard key={x.slug} p={x} />
+            ))}
+          </div>
+        </>
+      )}
     </main>
   );
 }

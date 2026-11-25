@@ -13,15 +13,19 @@ import { gsap } from "gsap";
  * through it clears it — otherwise a browser without IntersectionObserver, or
  * a visitor who asked for reduced motion, would be left with an empty grid.
  *
- * It runs once per mount: a grid that later re-renders (a filter, a search)
- * swaps in fresh cards that are simply visible, rather than replaying the
- * entrance on every keystroke.
+ * It runs once the grids are `ready` (e.g. once catalog data has loaded) and
+ * then never again for that mount: a grid that later re-renders with fresh
+ * cards (a filter, a search) simply shows them, rather than replaying the
+ * entrance on every keystroke. `ready` must stay stable once it flips true —
+ * it exists only to delay the one run past a page's initial loading state.
  */
 export function useGridReveal(
   root: RefObject<HTMLElement | null>,
   selectors: string[],
+  ready = true,
 ) {
   useLayoutEffect(() => {
+    if (!ready) return;
     const host = root.current;
     if (!host) return;
     const grids = selectors
@@ -72,7 +76,7 @@ export function useGridReveal(
       watchers.forEach((watcher) => watcher.disconnect());
       context.revert();
     };
-    // Mount only; `selectors` is a fresh array each render and never changes.
+    // `selectors` is a fresh array each render and never changes in practice.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [ready]);
 }

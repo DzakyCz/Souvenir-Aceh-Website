@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "@fontsource-variable/dm-sans";
 import "./globals.css";
 import "./shop.css";
-import { Storefront } from "../components/store";
+import { CatalogProvider } from "../components/catalog";
 export const metadata: Metadata = {
   title: {
     default: "souveniraceh Oleh oleh khas Aceh",
@@ -22,7 +22,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             __html: 'document.documentElement.dataset.js="1"',
           }}
         />
-        <Storefront>{children}</Storefront>
+        <CatalogProvider>{children}</CatalogProvider>
       </body>
     </html>
   );

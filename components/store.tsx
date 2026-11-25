@@ -5,6 +5,7 @@ import { CollectionMenu } from "./menu";
 import { usePathname } from "next/navigation";
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -28,40 +29,52 @@ import {
   ShoppingBasket,
   NotebookTabs,
 } from "lucide-react";
-import {
-  categories,
-  products,
-  shops,
-  money,
-  photo,
-  type Product,
-} from "./catalog";
+import { API_URL, money, photo, useCatalog, type Product } from "./catalog";
 type Panel =
   "cart" | "search" | "guide" | "menu" | null;
 type Cart = Record<string, number>;
 export type Order = {
   id: string;
-  date: string;
+  customerName: string;
+  phone: string;
+  method: string;
   location: string;
+  deliveryDate: string;
+  fee: number;
+  subtotal: number;
   total: number;
-  items: { name: string; qty: number }[];
-  placedAt?: string;
-  fee?: number;
+  status: string;
+  placedAt: string;
+  items: { id: number; name: string; qty: number; price: number }[];
 };
+export type PlaceOrderInput = {
+  name: string;
+  phone: string;
+  method: "pickup" | "hotel";
+  location: string;
+  deliveryDate: string;
+};
+export type PlaceOrderResult =
+  | { ok: true; order: Order }
+  | { ok: false; error: string };
 const Context = createContext<{
   open: (p: Panel) => void;
   add: (p: Product, n?: number) => boolean;
   loaded: boolean;
   cart: Cart;
   orders: Order[];
-  placeOrder: (date: string, location: string, fee: number) => Order | null;
+  ordersLoaded: boolean;
+  refreshOrders: () => void;
+  placeOrder: (input: PlaceOrderInput) => Promise<PlaceOrderResult>;
 }>({
   open: () => {},
   add: () => false,
   loaded: false,
   cart: {},
   orders: [],
-  placeOrder: () => null,
+  ordersLoaded: false,
+  refreshOrders: () => {},
+  placeOrder: async () => ({ ok: false, error: "belum siap" }),
 });
 export const useMarket = () => useContext(Context);
 export function Logo() {
@@ -92,12 +105,22 @@ function save(key: string, data: unknown) {
     localStorage.setItem(key, JSON.stringify(data));
   } catch {}
 }
+const ORDER_IDS_KEY = "buah-tangan.order-ids.v1";
+function readOrderIds(): string[] {
+  const ids = read<string[]>(ORDER_IDS_KEY, []);
+  return Array.isArray(ids) ? ids : [];
+}
+function saveOrderIds(ids: string[]) {
+  save(ORDER_IDS_KEY, ids);
+}
 export function Storefront({ children }: { children: ReactNode }) {
   const pathname = usePathname(),
+    { products, shops, reload } = useCatalog(),
     [panel, setPanel] = useState<Panel>(null),
     [shown, setShown] = useState<Exclude<Panel, null>>("menu"),
     [cart, setCart] = useState<Cart>({}),
     [orders, setOrders] = useState<Order[]>([]),
+    [ordersLoaded, setOrdersLoaded] = useState(false),
     [loaded, setLoaded] = useState(false);
   const [removed, setRemoved] = useState<{
     product: Product;
@@ -107,30 +130,47 @@ export function Storefront({ children }: { children: ReactNode }) {
     [toast, setToast] = useState(""),
     timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    const old = read<Cart>("buah-tangan.cart.v1", {});
-    const clean: Cart = {};
-    products.forEach((p) => {
-      const n = Number(old?.[p.slug]);
-      if (Number.isInteger(n) && n > 0) clean[p.slug] = Math.min(n, p.stock);
-    });
-    setCart(clean);
-    const o = read<Order[]>("buah-tangan.demo-orders", []);
-    setOrders(
-      Array.isArray(o)
-        ? o.map((order) => ({
-            ...order,
-            id: String(order.id).replace(/-/g, ""),
-          }))
-        : [],
-    );
+    setCart(read<Cart>("buah-tangan.cart.v1", {}));
     setLoaded(true);
   }, []);
+  // Once live stock arrives, drop cart entries for products that no longer
+  // exist and clamp quantities that now exceed current stock.
   useEffect(() => {
-    if (loaded) {
-      save("buah-tangan.cart.v1", cart);
-      save("buah-tangan.demo-orders", orders);
+    if (!products.length) return;
+    setCart((old) => {
+      const clean: Cart = {};
+      products.forEach((p) => {
+        const n = Number(old[p.slug]);
+        if (Number.isInteger(n) && n > 0) clean[p.slug] = Math.min(n, p.stock);
+      });
+      return clean;
+    });
+  }, [products]);
+  useEffect(() => {
+    if (loaded) save("buah-tangan.cart.v1", cart);
+  }, [cart, loaded]);
+  const refreshOrders = useCallback(async () => {
+    const ids = readOrderIds();
+    if (!ids.length) {
+      setOrders([]);
+      setOrdersLoaded(true);
+      return;
     }
-  }, [cart, orders, loaded]);
+    const results = await Promise.all(
+      ids.map((id) =>
+        fetch(API_URL + "/api/orders/" + id, { cache: "no-store" })
+          .then((res) => (res.ok ? (res.json() as Promise<Order>) : null))
+          .catch(() => null),
+      ),
+    );
+    const valid = results.filter((o): o is Order => o !== null);
+    valid.sort((a, b) => (a.placedAt < b.placedAt ? 1 : -1));
+    setOrders(valid);
+    setOrdersLoaded(true);
+  }, []);
+  useEffect(() => {
+    refreshOrders();
+  }, [refreshOrders]);
   useEffect(() => {
     setPanel(null);
   }, [pathname]);
@@ -191,20 +231,43 @@ export function Storefront({ children }: { children: ReactNode }) {
       return updated;
     });
   }
-  function placeOrder(date: string, location: string, fee: number) {
-    if (!rows.length) return null;
-    const order: Order = {
-      id: "SA" + crypto.randomUUID().slice(0, 8).toUpperCase(),
-      date,
-      location,
-      total: total + fee,
-      items: rows.map((p) => ({ name: p.name, qty: cart[p.slug] })),
-      placedAt: new Date().toISOString(),
-      fee,
-    };
-    setOrders((prev) => [order, ...prev]);
-    setCart({});
-    return order;
+  async function placeOrder(
+    input: PlaceOrderInput,
+  ): Promise<PlaceOrderResult> {
+    if (!rows.length) return { ok: false, error: "Keranjang masih kosong." };
+    try {
+      const res = await fetch(API_URL + "/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: input.name,
+          phone: input.phone,
+          method: input.method,
+          location: input.location,
+          deliveryDate: input.deliveryDate,
+          items: rows.map((p) => ({ slug: p.slug, qty: cart[p.slug] })),
+        }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        return {
+          ok: false,
+          error: body?.error || "Gagal membuat pesanan. Coba lagi.",
+        };
+      }
+      const order = body as Order;
+      saveOrderIds([order.id, ...readOrderIds()]);
+      setOrders((prev) => [order, ...prev]);
+      setOrdersLoaded(true);
+      setCart({});
+      reload();
+      return { ok: true, order };
+    } catch {
+      return {
+        ok: false,
+        error: "Tidak dapat menghubungi server. Periksa koneksi Anda.",
+      };
+    }
   }
   const results = products.filter((p) =>
     query
@@ -212,15 +275,7 @@ export function Storefront({ children }: { children: ReactNode }) {
       .toLocaleLowerCase()
       .split(/\s+/)
       .every((w) =>
-        (
-          p.name +
-          " " +
-          shops[p.shop].name +
-          " " +
-          shops[p.shop].origin +
-          " " +
-          categories[p.category].name
-        )
+        (p.name + " " + p.shop.name + " " + p.shop.origin + " " + p.category.name)
           .toLowerCase()
           .includes(w),
       ),
@@ -256,7 +311,18 @@ export function Storefront({ children }: { children: ReactNode }) {
     </>
   );
   return (
-    <Context.Provider value={{ open, add, loaded, cart, orders, placeOrder }}>
+    <Context.Provider
+      value={{
+        open,
+        add,
+        loaded,
+        cart,
+        orders,
+        ordersLoaded,
+        refreshOrders,
+        placeOrder,
+      }}
+    >
       <a className="skip" href="#utama">
         Langsung ke konten
       </a>
@@ -410,10 +476,10 @@ export function Storefront({ children }: { children: ReactNode }) {
                       key={p.slug}
                       onClick={() => open(null)}
                     >
-                      <img src={photo(p.image)} alt="" />
+                      <img src={photo(p)} alt="" />
                       <span>
                         <strong>{p.name}</strong>
-                        <small>{shops[p.shop].name}</small>
+                        <small>{p.shop.name}</small>
                       </span>
                       <b>{money(p.price)}</b>
                     </Link>
@@ -443,19 +509,19 @@ export function Storefront({ children }: { children: ReactNode }) {
               (rows.length ? (
                 <>
                   <div className="cart-rows">
-                    {shops.map(
-                      (s, i) =>
-                        rows.some((p) => p.shop === i) && (
+                    {shops.map((s) => {
+                      const shopRows = rows.filter((p) => p.shop.id === s.id);
+                      if (!shopRows.length) return null;
+                      return (
                           <section key={s.slug}>
                             <h3 className="shop-tag">
                               <Store size={15} />
                               {s.name}
                             </h3>
-                            {rows
-                              .filter((p) => p.shop === i)
+                            {shopRows
                               .map((p) => (
                                 <div className="cart-row" key={p.slug}>
-                                  <img src={photo(p.image)} alt={p.name} />
+                                  <img src={photo(p)} alt={p.name} />
                                   <div className="grow">
                                     <h4>{p.name}</h4>
                                     <small>{p.size}</small>
@@ -493,8 +559,8 @@ export function Storefront({ children }: { children: ReactNode }) {
                                 </div>
                               ))}
                           </section>
-                        ),
-                    )}
+                      );
+                    })}
                   </div>
                   <div className="cart-bottom">
                     <div className="summary-line">

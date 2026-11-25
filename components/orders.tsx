@@ -1,6 +1,5 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import {
   CalendarDays,
   Check,
@@ -13,15 +12,6 @@ import { useMarket, type Order } from "./store";
 import { money } from "./catalog";
 import { Breadcrumb } from "./market";
 
-/** Today in Aceh (WIB) as YYYY-MM-DD, so it can be compared to order.date. */
-function todayInAceh() {
-  return new Intl.DateTimeFormat("sv-SE", {
-    timeZone: "Asia/Jakarta",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
 function longDate(value: string) {
   const parsed = new Date(value + "T12:00:00");
   if (Number.isNaN(parsed.getTime())) return value;
@@ -37,24 +27,24 @@ function placedOn(value: string) {
   }).format(parsed);
 }
 
-const steps = ["Pesanan dibuat", "Sedang disiapkan", "Siap diserahkan"];
-const statusLabel = [
+const statusOrder = ["created", "processing", "ready", "completed"];
+const steps = [
+  "Pesanan dibuat",
   "Sedang disiapkan",
-  "Siap diserahkan hari ini",
-  "Sudah lewat tanggal serah",
+  "Siap diserahkan",
+  "Selesai diambil",
 ];
+const statusLabel: Record<string, string> = {
+  created: "Pesanan dibuat",
+  processing: "Sedang disiapkan",
+  ready: "Siap diserahkan",
+  completed: "Selesai diambil",
+  cancelled: "Dibatalkan",
+};
 
-/**
- * Tanpa backend, status dihitung dari tanggal serah:
- * 0 = belum sampai tanggalnya, 1 = hari ini, 2 = sudah lewat.
- */
-function stageOf(date: string, today: string) {
-  if (today < date) return 0;
-  return today === date ? 1 : 2;
-}
-
-function OrderCard({ order, today }: { order: Order; today: string }) {
-  const stage = stageOf(order.date, today);
+function OrderCard({ order }: { order: Order }) {
+  const stage = statusOrder.indexOf(order.status);
+  const cancelled = order.status === "cancelled";
   const placed = order.placedAt ? placedOn(order.placedAt) : "";
   return (
     <article className="order-card">
@@ -66,10 +56,11 @@ function OrderCard({ order, today }: { order: Order; today: string }) {
           </span>
           {placed && <small>Dibuat {placed} WIB</small>}
         </div>
-        <span className={"order-status status-" + stage}>
-          {statusLabel[stage]}
+        <span className={"order-status status-" + (cancelled ? 2 : stage)}>
+          {statusLabel[order.status] || order.status}
         </span>
       </div>
+      {!cancelled && (
       <ol className="order-track">
         {steps.map((label, i) => {
           const state = stage > i ? "done" : stage === i ? "active" : "next";
@@ -92,10 +83,11 @@ function OrderCard({ order, today }: { order: Order; today: string }) {
           );
         })}
       </ol>
+      )}
       <div className="order-facts">
         <p>
           <CalendarDays size={16} />
-          Serah {longDate(order.date)}
+          Serah {longDate(order.deliveryDate)}
         </p>
         <p>
           <MapPin size={16} />
@@ -110,7 +102,7 @@ function OrderCard({ order, today }: { order: Order; today: string }) {
       </div>
       <div className="order-items">
         {order.items.map((item) => (
-          <div className="summary-line" key={item.name}>
+          <div className="summary-line" key={item.id}>
             <span>{item.name}</span>
             <b>× {item.qty}</b>
           </div>
@@ -125,10 +117,7 @@ function OrderCard({ order, today }: { order: Order; today: string }) {
 }
 
 export function Orders() {
-  const { orders, loaded } = useMarket();
-  const [today, setToday] = useState("");
-  useEffect(() => setToday(todayInAceh()), []);
-  const ready = loaded && today;
+  const { orders, ordersLoaded } = useMarket();
   return (
     <main id="utama" className="shell page">
       <Breadcrumb items={[{ name: "Pesanan saya" }]} />
@@ -138,11 +127,11 @@ export function Orders() {
           Pesanan <em>saya.</em>
         </h1>
         <p>
-          Lacak pesanan yang sudah Anda buat. Status mengikuti tanggal serah dan
+          Lacak pesanan yang sudah Anda buat. Status diperbarui oleh admin dan
           riwayat ini tersimpan di peramban perangkat ini saja.
         </p>
       </div>
-      {!ready ? (
+      {!ordersLoaded ? (
         <p role="status">Memuat pesanan…</p>
       ) : !orders.length ? (
         <section className="checkout-card empty">
@@ -156,7 +145,7 @@ export function Orders() {
       ) : (
         <div className="order-list">
           {orders.map((order) => (
-            <OrderCard key={order.id} order={order} today={today} />
+            <OrderCard key={order.id} order={order} />
           ))}
         </div>
       )}

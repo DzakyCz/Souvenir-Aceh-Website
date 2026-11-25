@@ -9,7 +9,7 @@ import {
   ReceiptText,
   ChevronRight,
 } from "lucide-react";
-import { categories } from "./catalog";
+import { useCatalog } from "./catalog";
 export function CollectionMenu({
   onClose,
   onGuide,
@@ -17,6 +17,7 @@ export function CollectionMenu({
   onClose: () => void;
   onGuide: () => void;
 }) {
+  const { categories } = useCatalog();
   const root = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (typeof window.matchMedia !== "function") return;

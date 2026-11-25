@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { gsap } from "gsap";
 import { ChevronLeft, ChevronRight, ShoppingBag } from "lucide-react";
-import { categories, products, money } from "./catalog";
+import { money, useCatalog } from "./catalog";
 
 const stories = [
   {
@@ -35,6 +35,7 @@ const stories = [
 const SLIDE_MS = 5000;
 
 export function Showcase() {
+  const { categories, products } = useCatalog();
   const [index, setIndex] = useState(0),
     root = useRef<HTMLElement>(null);
   // Pointer inside the hero, keyboard focus inside it, or a backgrounded tab
@@ -160,19 +161,21 @@ export function Showcase() {
               <ChevronRight size={16} />
             </button>
             <span className="sr-only" aria-live="polite">
-              {categories[index].name}, {index + 1} dari {stories.length}
+              {categories[index]?.name}, {index + 1} dari {stories.length}
             </span>
           </div>
         </div>
-        <Link className="story-product" href={"/produk/" + product.slug + "/"}>
-          <img src={"/img/ikon-koleksi-" + index + ".webp"} alt="" />
-          <span>
-            <small>Produk pilihan</small>
-            <strong>{product.name}</strong>
-          </span>
-          <b>{money(product.price)}</b>
-          <ChevronRight size={15} />
-        </Link>
+        {product && (
+          <Link className="story-product" href={"/produk/" + product.slug + "/"}>
+            <img src={"/img/ikon-koleksi-" + index + ".webp"} alt="" />
+            <span>
+              <small>Produk pilihan</small>
+              <strong>{product.name}</strong>
+            </span>
+            <b>{money(product.price)}</b>
+            <ChevronRight size={15} />
+          </Link>
+        )}
       </div>
     </section>
   );

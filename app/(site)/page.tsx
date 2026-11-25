@@ -1,1 +1,1 @@
-export { Home as default } from "../components/market";
+export { Home as default } from "../../components/market";

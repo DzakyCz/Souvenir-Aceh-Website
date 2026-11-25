@@ -10,11 +10,41 @@ import {
   ShoppingBag,
   Check,
   MapPin,
+  MessageCircle,
 } from "lucide-react";
-import { useMarket } from "./store";
-import { products, money, photo } from "./catalog";
+import { useMarket, type Order } from "./store";
+import { useCatalog, money, photo } from "./catalog";
 import { Field } from "./field";
 import { Choice } from "./choice";
+
+const WHATSAPP_NUMBER = "628116833444";
+function whatsAppLink(order: Order) {
+  const lines = [
+    "Assalamualaikum Wr Wb, saya ingin konfirmasi pesanan di souveniraceh.",
+    "",
+    "ID Pesanan: " + order.id,
+    "Nama: " + order.customerName,
+    "",
+    "Produk:",
+    ...order.items.map((item) => "- " + item.name + " x" + item.qty),
+    "",
+    "Total: " + money(order.total),
+    "Cara serah: " + (order.fee > 0 ? "Antar hotel" : "Ambil sendiri"),
+    "Lokasi: " + order.location,
+    "Tanggal serah: " +
+      new Intl.DateTimeFormat("id-ID", { dateStyle: "long" }).format(
+        new Date(order.deliveryDate + "T12:00:00"),
+      ),
+    "",
+    "Terima kasih.",
+  ];
+  return (
+    "https://api.whatsapp.com/send/?phone=" +
+    WHATSAPP_NUMBER +
+    "&text=" +
+    encodeURIComponent(lines.join("\n"))
+  );
+}
 
 const pickupLocations = [
   "Gerai souveniraceh, Banda Aceh",
@@ -31,6 +61,7 @@ function dateInAceh(offset: number) {
 
 export function Checkout() {
   const { cart, loaded, open, placeOrder } = useMarket();
+  const { products, loaded: catalogLoaded } = useCatalog();
   const [draft, setDraft] = useState({
     name: "",
     phone: "",
@@ -41,7 +72,9 @@ export function Checkout() {
   const [date, setDate] = useState("");
   const [firstDay, setFirstDay] = useState("");
   const deliveryDate = date || firstDay;
-  const [order, setOrder] = useState<ReturnType<typeof placeOrder>>(null);
+  const [order, setOrder] = useState<Order | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
   const rows = products.filter((p) => cart[p.slug] > 0);
   const total = rows.reduce((sum, p) => sum + p.price * cart[p.slug], 0);
@@ -51,14 +84,20 @@ export function Checkout() {
     setFirstDay(tomorrow);
     setDate((current) => current || tomorrow);
   }, []);
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const result = placeOrder(
+    setSubmitting(true);
+    setSubmitError("");
+    const result = await placeOrder({
+      name: draft.name.trim(),
+      phone: draft.phone.trim(),
+      method: method as "pickup" | "hotel",
+      location: method === "hotel" ? draft.hotel.trim() : draft.pickup,
       deliveryDate,
-      method === "hotel" ? draft.hotel.trim() : draft.pickup,
-      fee,
-    );
-    if (result) setOrder(result);
+    });
+    setSubmitting(false);
+    if (result.ok) setOrder(result.order);
+    else setSubmitError(result.error);
   }
   useEffect(() => {
     if (order) {
@@ -97,7 +136,7 @@ export function Checkout() {
           <p>
             <CalendarDays size={17} />
             {new Intl.DateTimeFormat("id-ID", { dateStyle: "long" }).format(
-              new Date(order.date + "T12:00:00"),
+              new Date(order.deliveryDate + "T12:00:00"),
             )}
           </p>
           {order.items.map((item) => (
@@ -110,11 +149,24 @@ export function Checkout() {
             <strong>Total</strong>
             <b>{money(order.total)}</b>
           </div>
-          <Link className="btn primary" href="/produk/">
+          <p>
+            Pesanan tersimpan. Lanjutkan ke WhatsApp untuk konfirmasi dengan
+            toko.
+          </p>
+          <a
+            className="btn primary"
+            href={whatsAppLink(order)}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <MessageCircle size={18} />
+            Lanjut ke WhatsApp
+          </a>
+          <Link className="btn outline" href="/produk/">
             Kembali ke katalog
           </Link>
         </section>
-      ) : !loaded ? (
+      ) : !loaded || !catalogLoaded ? (
         <p role="status">Memuat keranjang…</p>
       ) : !rows.length ? (
         <section className="checkout-card empty">
@@ -244,7 +296,7 @@ export function Checkout() {
             <ul>
               {rows.map((p) => (
                 <li key={p.slug}>
-                  <img src={photo(p.image)} alt="" width={48} height={48} />
+                  <img src={photo(p)} alt="" width={48} height={48} />
                   <div>
                     <strong>{p.name}</strong>
                     <small>
@@ -269,7 +321,14 @@ export function Checkout() {
               <strong>Total</strong>
               <b>{money(total + fee)}</b>
             </div>
-            <button className="btn primary wide">Buat pesanan</button>
+            {submitError && (
+              <p role="alert" style={{ color: "var(--rust)" }}>
+                {submitError}
+              </p>
+            )}
+            <button className="btn primary wide" disabled={submitting}>
+              {submitting ? "Memproses…" : "Buat pesanan"}
+            </button>
           </section>
         </form>
       )}
