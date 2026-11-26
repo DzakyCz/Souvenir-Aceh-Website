@@ -1,0 +1,7 @@
+# Secrets never belong in an image layer.
+.env
+.env.example
+
+# Local-only compose setup; the deployed API talks to Supabase.
+docker-compose.yml
+README.md
