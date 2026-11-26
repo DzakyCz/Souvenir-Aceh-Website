@@ -30,11 +30,12 @@ func (h *Handlers) Shops(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) Products(w http.ResponseWriter, r *http.Request) {
-	query := h.DB.Model(&models.Product{}).Preload("Category").Preload("Shop")
+	// Joins pulls Category and Shop in the same statement; Preload would issue
+	// one extra query each, and every round trip to the pooler costs ~230ms.
+	query := h.DB.Model(&models.Product{}).Joins("Category").Joins("Shop")
 
 	if categorySlug := r.URL.Query().Get("category"); categorySlug != "" {
-		query = query.Joins("JOIN categories ON categories.id = products.category_id").
-			Where("categories.slug = ?", categorySlug)
+		query = query.Where(`"Category".slug = ?`, categorySlug)
 	}
 	if search := strings.TrimSpace(r.URL.Query().Get("q")); search != "" {
 		query = query.Where("LOWER(products.name) LIKE ?", "%"+strings.ToLower(search)+"%")
@@ -59,7 +60,7 @@ func (h *Handlers) Products(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) ProductBySlug(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
 	var product models.Product
-	err := h.DB.Preload("Category").Preload("Shop").Where("slug = ?", slug).First(&product).Error
+	err := h.DB.Joins("Category").Joins("Shop").Where("products.slug = ?", slug).First(&product).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		writeError(w, http.StatusNotFound, "produk tidak ditemukan")
 		return

@@ -2,6 +2,7 @@ package db
 
 import (
 	"log"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/postgres"
@@ -13,9 +14,26 @@ import (
 )
 
 func Connect(cfg config.Config) (*gorm.DB, error) {
-	return gorm.Open(postgres.Open(cfg.DatabaseURL), &gorm.Config{
+	gormDB, err := gorm.Open(postgres.Open(cfg.DatabaseURL), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Warn),
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	sqlDB, err := gormDB.DB()
+	if err != nil {
+		return nil, err
+	}
+	// database/sql keeps only 2 idle connections by default, so a burst of
+	// parallel requests closes sockets it is about to need again — and each new
+	// connection to a cross-region pooler pays a fresh TLS handshake.
+	sqlDB.SetMaxOpenConns(10)
+	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetConnMaxIdleTime(5 * time.Minute)
+	sqlDB.SetConnMaxLifetime(30 * time.Minute)
+
+	return gormDB, nil
 }
 
 func Migrate(d *gorm.DB) error {
